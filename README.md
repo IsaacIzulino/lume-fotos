@@ -29,13 +29,13 @@ As credenciais administrativas do Supabase ficam no servidor. Todas as operaçõ
 3. O servidor confere tamanho e assinatura do arquivo antes de registrar a foto no álbum.
 4. As fotos privadas são liberadas por links assinados de 60 segundos, após validar o álbum e o visitante.
 
-O limite é 25 MB por foto. Os arquivos não passam pelo corpo de uma Vercel Function. Uploads interrompidos tentam cancelar o registro e remover o objeto pendente. Registros pendentes antigos podem ser revisados em lume_uploads; nunca exclua caminhos que estejam registrados em fotos. A seleção pode ser baixada em ZIP de até 200 MB por lote no navegador.
+O limite é 25 MB por foto. Os arquivos não passam pelo corpo de uma Vercel Function. Confirmações interrompidas são repetidas sem reenviar o arquivo. Ao abrir o álbum, arquivos pendentes válidos são recuperados; falhas de rede não apagam os originais. Registros pendentes antigos podem ser revisados em lume_uploads; nunca exclua caminhos que estejam registrados em fotos. A seleção pode ser baixada em ZIP de até 200 MB por lote no navegador.
 
 Ao desativar um álbum, novas autorizações de acesso são bloqueadas. Uma URL já assinada pode funcionar até expirar, por no máximo 60 segundos.
 
 ## URLs
 
-- /cliente: demonstração pública.
+- /cliente: página inicial vazia, sem fotos de demonstração.
 - /cliente/<codigo>: álbum do cliente.
 - /fotografo: login e painel.
 - /: redireciona para /cliente.

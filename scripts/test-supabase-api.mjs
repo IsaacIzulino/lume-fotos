@@ -70,7 +70,7 @@ test('Supabase login, ownership, storage and client selections',async t=>{
  const api=async(path,method,body)=>{const r=await call(path,method,body),b=await r.json();assert.ok(r.ok,JSON.stringify(b));return b};
  try{
   await t.test('configuration, CSRF and unauthenticated access fail closed',async()=>{
-   delete process.env.SUPABASE_SECRET_KEY;assert.equal((await call('health')).status,503);assert.equal((await call('gallery/demo')).status,200);
+   delete process.env.SUPABASE_SECRET_KEY;assert.equal((await call('health')).status,503);assert.equal((await call('gallery/demo')).status,404);
    process.env.SUPABASE_SECRET_KEY=secret;assert.equal((await call('health')).status,200);
    assert.equal((await call('albums','POST',{})).status,401);
    assert.equal((await call('login','POST',{},{Origin:'https://attacker.example'})).status,403);
@@ -113,6 +113,39 @@ test('Supabase login, ownership, storage and client selections',async t=>{
    const detail=await api('albums/'+album.id);assert.deepEqual(JSON.parse(detail.selections[0].photos),[photo.id]);
    assert.equal((await api('albums')).find(a=>a.id===album.id).selectionCount,1);
   });
+
+  await t.test('confirmation retries do not send the file twice',async()=>{
+   const data=new Uint8Array(64);data.set([137,80,78,71,13,10,26,10]);
+   let attempts=0;
+   const confirmed=await uploadPhoto(new File([data],'retry.png',{type:'image/png'}),album.id,'direct',async(path,method,body)=>{
+    if(path.endsWith('/complete')&&attempts++===0)throw Object.assign(new Error('Resposta temporariamente indisponível'),{status:502});
+    return api(path,method,body);
+   });
+   assert.equal(attempts,2);assert.ok(db.fotos.some(p=>p.id===confirmed.id));
+  });
+  await t.test('lost confirmation is recovered on opening the album',async()=>{
+   const data=new Uint8Array(64);data.set([137,80,78,71,13,10,26,10]);
+   let pendingId;
+   try{
+    await uploadPhoto(new File([data],'recover.png',{type:'image/png'}),album.id,'direct',async(path,method,body)=>{
+     if(path.endsWith('/complete'))throw new TypeError('Conexão interrompida');
+     return api(path,method,body);
+    });
+    assert.fail('Expected interrupted confirmation');
+   }catch(error){pendingId=error.uploadId;assert.ok(pendingId)}
+   assert.ok(db.lume_uploads.some(p=>p.id===pendingId));
+   assert.ok(!db.fotos.some(p=>p.id===pendingId));
+   const recovered=await api('albums/'+album.id);
+   assert.ok(recovered.photos.some(p=>p.id===pendingId));assert.equal(recovered.recoveredUploads,1);
+   assert.ok(!db.lume_uploads.some(p=>p.id===pendingId));
+  });
+  await t.test('old cancellation requests cannot erase a successfully uploaded original',async()=>{
+   const ticket=await api('albums/'+album.id+'/uploads','POST',{name:'preserve.png',size:64,mime:'image/png'});
+   const pending=db.lume_uploads.find(p=>p.id===ticket.id),data=new Uint8Array(64);data.set([137,80,78,71,13,10,26,10]);objects.set(pending.caminho_storage,data);
+   const result=await api('albums/'+album.id+'/uploads/'+ticket.id,'DELETE');
+   assert.equal(result.completed,true);assert.ok(objects.has(pending.caminho_storage));assert.ok(db.fotos.some(p=>p.id===ticket.id));
+  });
+
   await t.test('unpublishing, disabled accounts and logout revoke access',async()=>{
    await api('albums/'+album.id,'PATCH',{published:false});assert.equal((await call('image/'+album.token+'/'+photo.id)).status,404);
    assert.equal((await call('selection/'+album.token,'POST',{name:'Cliente',photos:[photo.id]})).status,404);

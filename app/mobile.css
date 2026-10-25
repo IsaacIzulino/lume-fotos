@@ -202,3 +202,14 @@
   .light-controls .btn { font-size: 13px; min-height: 44px; }
   .light-controls > a.btn span { display: inline; }
 }
+
+.client-home { min-height: 100svh; display: flex; flex-direction: column; }
+.client-home-main { flex: 1; width: min(560px, 100%); margin: auto; padding: 56px 24px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.client-home-icon { color: var(--accent); background: var(--soft); border-radius: 50%; width: 76px; height: 76px; display: grid; place-items: center; margin-bottom: 28px; }
+.client-home h1 { font: 400 clamp(30px, 5vw, 42px)/1.2 Georgia, serif; margin: 18px 0; letter-spacing: -1px; }
+.client-home p { color: #6c7466; font-size: 16px; line-height: 1.7; max-width: 400px; }
+.client-home > .page-footer { margin: 0 5%; padding: 22px 0 calc(22px + env(safe-area-inset-bottom)); }
+@media(max-width:760px) {
+  .client-home-main { padding: 40px 24px; }
+  .client-home .page-footer { margin: 0 16px; }
+}

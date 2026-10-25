@@ -1,4 +1,3 @@
-import { demoAlbum, demoPhotos } from '../app/demo.ts';
 
 type RecordData = Record<string, any>;
 class ApiError extends Error {
@@ -168,6 +167,33 @@ async function inspectUploaded(path: string) {
   } finally { await reader.cancel(); }
   return { size: total, mime: imageType(prefix.subarray(0, count)) };
 }
+
+function validUploaded(pending: RecordData, actual: {size: number; mime: string | null}) {
+  return actual.mime === pending.tipo_mime && actual.size === Number(pending.tamanho_bytes) && actual.size > 0 && actual.size <= MAX_PHOTO;
+}
+async function saveUploaded(pending: RecordData) {
+  await write('fotos', 'POST', {
+    id: pending.id, album_id: pending.album_id, nome_arquivo: pending.nome_arquivo,
+    caminho_storage: pending.caminho_storage, tipo_mime: pending.tipo_mime,
+    tamanho_bytes: Number(pending.tamanho_bytes),
+  }, {}, 'resolution=ignore-duplicates,return=minimal');
+  await write('lume_uploads', 'DELETE', undefined, { id: 'eq.' + pending.id }, 'return=minimal');
+}
+async function recoverUploaded(albumId: string, photographer: string) {
+  const pending = await rows('lume_uploads', {
+    select: '*', album_id: 'eq.' + albumId, fotografo_id: 'eq.' + photographer, order: 'criado_em.asc', limit: 8,
+  });
+  const recovered = await Promise.all(pending.map(async upload => {
+    try {
+      const actual = await inspectUploaded(upload.caminho_storage);
+      if (!validUploaded(upload, actual)) return false;
+      await saveUploaded(upload);
+      return true;
+    } catch { return false; }
+  }));
+  return recovered.filter(Boolean).length;
+}
+
 function mutationOrigin(request: Request) {
   const url = new URL(request.url);
   const host = request.headers.get('host') || url.host;
@@ -178,20 +204,7 @@ async function run(request: Request): Promise<Response> {
   const url = new URL(request.url), parts = url.pathname.replace(/^\/api\//, '').split('/'), method = request.method;
   if (!['GET', 'HEAD'].includes(method)) mutationOrigin(request);
 
-  // The demo does not depend on database availability.
-  if (parts[0] === 'gallery' && parts[1] === 'demo' && method === 'GET') return json({ album: demoAlbum, photos: demoPhotos });
-  if (parts[0] === 'selection' && parts[1] === 'demo' && method === 'POST') return json({ ok: true, demo: true });
-  if (parts[0] === 'image' && parts[1] === 'demo' && method === 'GET') {
-    const photo = demoPhotos.find(p => p.id === parts[2]);
-    if (!photo) fail('Foto não encontrada.', 404);
-    const response = await fetch(photo!.url, { signal: AbortSignal.timeout(30000) });
-    if (!response.ok) fail('A foto de demonstração está indisponível.', 502);
-    return new Response(response.body, { headers: {
-      'Content-Type': 'image/jpeg', 'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'private, no-store',
-      ...(url.searchParams.has('download') ? { 'Content-Disposition': 'attachment; filename="' + photo!.name + '"' } : {}),
-    } });
-  }
+  if (parts[1] === 'demo' && ['gallery', 'image', 'selection'].includes(parts[0])) fail('Esta galeria não está disponível.', 404);
   if (parts[0] === 'health' && method === 'GET') {
     config();
     await rows('lume_sessoes', { select: 'token_hash', limit: 0 });
@@ -267,11 +280,12 @@ async function run(request: Request): Promise<Response> {
   }
   const a = await ownAlbum(parts[1], user.fotografo_id);
   if (parts.length === 2 && method === 'GET') {
+    const recoveredUploads = await recoverUploaded(a.id, user.fotografo_id);
     const [photos, selections] = await Promise.all([
       allRows('fotos', { select: '*', album_id: 'eq.' + a.id, order: 'ordem.asc,criado_em.asc,id.asc' }),
       allRows('selecoes', { select: '*,selecao_fotos(foto_id)', album_id: 'eq.' + a.id, order: 'criado_em.desc' }),
     ]);
-    return json({ album: albumData(a), photos: photos.map(photoData), selections: selections.map(s => ({
+    return json({ album: albumData(a), recoveredUploads, photos: photos.map(photoData), selections: selections.map(s => ({
       id: s.id, name: s.nome_cliente, created: Date.parse(s.criado_em),
       photos: JSON.stringify((s.selecao_fotos || []).map((p: RecordData) => p.foto_id)),
     })) });
@@ -315,6 +329,14 @@ async function run(request: Request): Promise<Response> {
     const pending = (await rows('lume_uploads', { select: '*', id: 'eq.' + parts[3], album_id: 'eq.' + a.id, fotografo_id: 'eq.' + user.fotografo_id, limit: 1 }))[0];
     if (method === 'DELETE' && parts.length === 4) {
       if (!pending) return json({ ok: true });
+      // A lost confirmation response must not delete a valid original.
+      try {
+        const actual = await inspectUploaded(pending.caminho_storage);
+        if (validUploaded(pending, actual)) {
+          await saveUploaded(pending);
+          return json({ ok: true, completed: true, id: pending.id });
+        }
+      } catch { return json({ ok: true, pending: true }); }
       await removeObjects([pending.caminho_storage]);
       await write('lume_uploads', 'DELETE', undefined, { id: 'eq.' + pending.id, fotografo_id: 'eq.' + user.fotografo_id }, 'return=minimal');
       return json({ ok: true });
@@ -324,16 +346,12 @@ async function run(request: Request): Promise<Response> {
       if (existing) return json({ id: existing.id });
       if (!pending || Date.parse(pending.expira_em) < Date.now()) fail('O prazo deste envio terminou. Envie a foto novamente.', 410);
       const actual = await inspectUploaded(pending.caminho_storage);
-      if (!actual.mime || actual.mime !== pending.tipo_mime || actual.size !== Number(pending.tamanho_bytes) || actual.size > MAX_PHOTO) {
+      if (!validUploaded(pending, actual)) {
         await removeObjects([pending.caminho_storage]);
         await write('lume_uploads', 'DELETE', undefined, { id: 'eq.' + pending.id }, 'return=minimal');
         fail('O arquivo enviado não corresponde a uma imagem válida.');
       }
-      await write('fotos', 'POST', {
-        id: pending.id, album_id: a.id, nome_arquivo: pending.nome_arquivo,
-        caminho_storage: pending.caminho_storage, tipo_mime: actual.mime, tamanho_bytes: actual.size,
-      }, {}, 'resolution=ignore-duplicates,return=minimal');
-      await write('lume_uploads', 'DELETE', undefined, { id: 'eq.' + pending.id }, 'return=minimal');
+      await saveUploaded(pending);
       return json({ id: pending.id }, 201);
     }
   }
