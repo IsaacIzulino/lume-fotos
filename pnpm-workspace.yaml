@@ -1,0 +1,9 @@
+storeDir: .sites-runtime/pnpm-store
+nodeLinker: hoisted
+symlink: false
+enableGlobalVirtualStore: false
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+  workerd: true
