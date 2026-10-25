@@ -14,10 +14,40 @@ const [maxUploadMB,setMaxUploadMB]=useState(25),[uploadMode,setUploadMode]=useSt
 const [user,setUser]=useState<boolean|null>(null),[albums,setAlbums]=useState<Album[]>([]),[album,setAlbum]=useState<Album|null>(null),[photos,setPhotos]=useState<Photo[]>([]),[selections,setSelections]=useState<any[]>([]);
 const [error,setError]=useState(''),[toast,setToast]=useState(''),[busy,setBusy]=useState(''),[query,setQuery]=useState(''),[filter,setFilter]=useState('all'),[selected,setSelected]=useState<Set<string>>(new Set()),[light,setLight]=useState<number|null>(null),[dialog,setDialog]=useState(''),[progress,setProgress]=useState(''),[loaded,setLoaded]=useState(false);
 const [preparedImages,setPreparedImages]=useState<File[]>([]),[preparedPreviews,setPreparedPreviews]=useState<string[]>([]),[saveError,setSaveError]=useState(''),[nativeSaving,setNativeSaving]=useState(false),[shareUnavailable,setShareUnavailable]=useState(false);
+const [barHidden,setBarHidden]=useState(false);
 const saveAbort=useRef<AbortController|null>(null),saveVersion=useRef(0);
 useEffect(()=>{const urls=preparedImages.map(file=>URL.createObjectURL(file));setPreparedPreviews(urls);return()=>urls.forEach(url=>URL.revokeObjectURL(url))},[preparedImages]);
 const input=useRef<HTMLInputElement>(null),downloadBar=useRef<HTMLDivElement>(null),touchStart=useRef<{x:number;y:number}|null>(null),isAdmin=mode==='admin';
 useEffect(()=>{if(isAdmin||!downloadBar.current)return;const element=downloadBar.current;const update=()=>document.documentElement.style.setProperty('--download-bar-height',element.getBoundingClientRect().height+'px');update();const observer=new ResizeObserver(update);observer.observe(element);return()=>{observer.disconnect();document.documentElement.style.removeProperty('--download-bar-height')}},[isAdmin,loaded,album?.id]);
+// Keep the mobile actions within reach without covering photos while browsing.
+useEffect(()=>{
+ setBarHidden(false);
+ if(isAdmin||!loaded||!album||dialog||light!==null||busy)return;
+ const mobile=window.matchMedia('(max-width: 760px), (pointer: coarse)');
+ const position=()=>Math.max(0,Math.min(window.scrollY,document.documentElement.scrollHeight-window.innerHeight));
+ let previous=position(),travel=0,direction=0,frame=0,width=window.innerWidth;
+ const update=()=>{
+  frame=0;
+  const current=position(),delta=current-previous;previous=current;
+  if(!mobile.matches||current<=24){travel=0;setBarHidden(false);return}
+  if(!delta)return;
+  const nextDirection=Math.sign(delta);
+  travel=nextDirection===direction?travel+Math.abs(delta):Math.abs(delta);direction=nextDirection;
+  if(travel<10)return;
+  if(downloadBar.current?.contains(document.activeElement))return;
+  setBarHidden(direction>0);travel=0;
+ };
+ const scroll=()=>{if(!frame)frame=window.requestAnimationFrame(update)};
+ const reset=()=>{previous=position();travel=0;direction=0;setBarHidden(false)};
+ // Safari changes viewport height as its address bar moves; only width changes reset scrolling.
+ const resize=()=>{if(window.innerWidth!==width){width=window.innerWidth;reset()}};
+ const keyboard=(event:KeyboardEvent)=>{if(event.key==='Tab')reset()};
+ window.addEventListener('scroll',scroll,{passive:true});
+ window.addEventListener('resize',resize);
+ window.addEventListener('keydown',keyboard);
+ mobile.addEventListener('change',reset);
+ return()=>{window.removeEventListener('scroll',scroll);window.removeEventListener('resize',resize);window.removeEventListener('keydown',keyboard);mobile.removeEventListener('change',reset);window.cancelAnimationFrame(frame)};
+},[isAdmin,loaded,album?.id,dialog,light,busy]);
 async function loadAlbums(){setAlbums(await api('albums'))}
 async function openAlbum(id:string,resetScroll=false){setError('');try{const d=await api('albums/'+id);setAlbum(d.album);setPhotos(d.photos);setSelections(d.selections);setFilter('all');setSelected(new Set());if(resetScroll)window.scrollTo({top:0,behavior:'auto'});return d}catch(e:any){setError(e.message);return null}}
 useEffect(()=>{if(isAdmin){api('me').then(d=>{setMaxUploadMB(d.maxUploadMB);setUploadMode(d.uploadMode);setUser(true);return loadAlbums()}).catch(e=>{setUser(false);if(e.status!==401)setError(e.message)}).finally(()=>setLoaded(true))}else{api('gallery/'+token).then(d=>{setAlbum(d.album);setPhotos(d.photos)}).catch(e=>setError(e.message)).finally(()=>setLoaded(true))}},[]);
@@ -114,7 +144,7 @@ return <div className={isAdmin?'app admin-app':'app'}>
 </>}
 <footer className="page-footer"><span>LUME © 2026</span><span>FOTOGRAFIAS QUE CONTAM A SUA HISTÓRIA.</span><span>Feito com cuidado <span className="terracotta"><BrandSparkle/></span></span></footer>
 </main>
-{!isAdmin&&album&&<div className="download-bar" ref={downloadBar}><div className="selection-icon"><Heart size={20}/></div><div role="status" aria-live="polite" aria-atomic="true"><strong>{selected.size?selected.size+' '+(selected.size===1?'foto selecionada':'fotos selecionadas'):'Qual momento é o seu favorito?'}</strong><small>{busy==='download'?progress:'Selecione, guarde e reviva.'}</small></div><div className="download-actions"><button className="btn send" disabled={!selected.size||!!busy} onClick={()=>setDialog('send')}><Send size={16}/> Enviar seleção</button><button className="btn primary" disabled={!selected.size||!!busy} onClick={downloadSelected}>{busy==='download'?<Loader2 className="spin" size={17}/>:<Download size={17}/>}<span className="desktop-label">Baixar selecionadas</span><span className="mobile-label">Salvar fotos</span><span className="button-count">{selected.size}</span></button></div></div>}
+{!isAdmin&&album&&<div className={'download-bar'+(barHidden?' is-hidden':'')} ref={downloadBar} inert={barHidden} aria-hidden={barHidden}><div className="selection-icon"><Heart size={20}/></div><div role="status" aria-live="polite" aria-atomic="true"><strong>{selected.size?selected.size+' '+(selected.size===1?'foto selecionada':'fotos selecionadas'):'Qual momento é o seu favorito?'}</strong><small>{busy==='download'?progress:'Selecione, guarde e reviva.'}</small></div><div className="download-actions"><button className="btn send" disabled={!selected.size||!!busy} onClick={()=>setDialog('send')}><Send size={16}/> Enviar seleção</button><button className="btn primary" disabled={!selected.size||!!busy} onClick={downloadSelected}>{busy==='download'?<Loader2 className="spin" size={17}/>:<Download size={17}/>}<span className="desktop-label">Baixar selecionadas</span><span className="mobile-label">Salvar fotos</span><span className="button-count">{selected.size}</span></button></div></div>}
 {dialog==='save-images'&&<Modal label="Salvar fotos" close={closeSaveImages}>
  <span className="eyebrow">SUAS FOTOS NO CELULAR</span>
  <h2>Salvar fotos</h2>
