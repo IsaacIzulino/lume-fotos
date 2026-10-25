@@ -260,3 +260,13 @@
  .save-previews { grid-template-columns: minmax(0,1fr); }
  .save-previews img { max-height: 420px; }
 }
+
+.album-download { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; margin: 0 0 24px; border: 1px solid #deded6; border-radius: 8px; background: #fffefa; }
+.album-download strong { font-size: 14px; font-weight: 500; }
+.album-download p { margin: 6px 0 0; font-size: 12px; color: #72786b; line-height: 1.5; }
+.album-download .btn { flex-shrink: 0; }
+.album-download .zip-progress { color: var(--accent); }
+@media(max-width:760px) {
+ .album-download { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }
+ .album-download .btn { width: 100%; min-height: 48px; }
+}
