@@ -1,2 +1,2 @@
 import { redirect } from 'next/navigation';
-export default function Page(){redirect('/cliente')}
+export default function Page(){redirect('/fotografo')}

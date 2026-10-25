@@ -1,2 +1,2 @@
-import ClientHome from '../client-home';
-export default function Page(){return <ClientHome/>}
+import { notFound } from 'next/navigation';
+export default function Page(){notFound()}
