@@ -249,3 +249,14 @@
 @media (prefers-reduced-motion: reduce) {
  .download-bar { transition: none; }
 }
+
+.save-instructions { padding: 16px; background: var(--soft); border-radius: 8px; margin-top: 18px; }
+.save-instructions strong { font-size: 15px; }
+.save-instructions p, .save-share-option p { font-size: 14px; line-height: 1.6; }
+.save-instructions p:last-child { margin-bottom: 0; }
+.save-previews img { -webkit-touch-callout: default; -webkit-user-select: auto; user-select: auto; }
+.save-share-option { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 12px; }
+@media(max-width:760px) {
+ .save-previews { grid-template-columns: minmax(0,1fr); }
+ .save-previews img { max-height: 420px; }
+}

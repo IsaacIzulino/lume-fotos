@@ -13,10 +13,10 @@ export default function Studio({mode,token='demo'}:{mode:'gallery'|'admin';token
 const [maxUploadMB,setMaxUploadMB]=useState(25),[uploadMode,setUploadMode]=useState('legacy'),[clientReady,setClientReady]=useState(false);
 const [user,setUser]=useState<boolean|null>(null),[albums,setAlbums]=useState<Album[]>([]),[album,setAlbum]=useState<Album|null>(null),[photos,setPhotos]=useState<Photo[]>([]),[selections,setSelections]=useState<any[]>([]);
 const [error,setError]=useState(''),[toast,setToast]=useState(''),[busy,setBusy]=useState(''),[query,setQuery]=useState(''),[filter,setFilter]=useState('all'),[selected,setSelected]=useState<Set<string>>(new Set()),[light,setLight]=useState<number|null>(null),[dialog,setDialog]=useState(''),[progress,setProgress]=useState(''),[loaded,setLoaded]=useState(false);
-const [preparedImages,setPreparedImages]=useState<File[]>([]),[preparedPreviews,setPreparedPreviews]=useState<string[]>([]),[saveError,setSaveError]=useState(''),[nativeSaving,setNativeSaving]=useState(false),[shareUnavailable,setShareUnavailable]=useState(false);
+const [preparedImages,setPreparedImages]=useState<File[]>([]),[preparedSources,setPreparedSources]=useState<string[]>([]),[saveError,setSaveError]=useState(''),[nativeSaving,setNativeSaving]=useState(false),[shareUnavailable,setShareUnavailable]=useState(false);
 const [barHidden,setBarHidden]=useState(false);
 const saveAbort=useRef<AbortController|null>(null),saveVersion=useRef(0);
-useEffect(()=>{const urls=preparedImages.map(file=>URL.createObjectURL(file));setPreparedPreviews(urls);return()=>urls.forEach(url=>URL.revokeObjectURL(url))},[preparedImages]);
+
 const input=useRef<HTMLInputElement>(null),downloadBar=useRef<HTMLDivElement>(null),touchStart=useRef<{x:number;y:number}|null>(null),isAdmin=mode==='admin';
 useEffect(()=>{if(isAdmin||!downloadBar.current)return;const element=downloadBar.current;const update=()=>document.documentElement.style.setProperty('--download-bar-height',element.getBoundingClientRect().height+'px');update();const observer=new ResizeObserver(update);observer.observe(element);return()=>{observer.disconnect();document.documentElement.style.removeProperty('--download-bar-height')}},[isAdmin,loaded,album?.id]);
 // Keep the mobile actions within reach without covering photos while browsing.
@@ -58,13 +58,13 @@ function img(p:Photo,download=false){return p.url&&!download?p.url:'/api/image/'
 function photoLabel(photo:Photo){return 'Foto '+String(photos.findIndex(item=>item.id===photo.id)+1).padStart(2,'0')}
 function closeSaveImages(){
  saveVersion.current++;saveAbort.current?.abort();saveAbort.current=null;
- setDialog('');setPreparedImages([]);setSaveError('');setBusy('');setNativeSaving(false);
+ setDialog('');setPreparedImages([]);setPreparedSources([]);setSaveError('');setBusy('');setNativeSaving(false);
 }
 async function prepareForGallery(list:Photo[]){
  if(!list.length||busy)return;
  const version=++saveVersion.current,controller=new AbortController();
  saveAbort.current?.abort();saveAbort.current=controller;
- setLight(null);setPreparedImages([]);setSaveError('');setShareUnavailable(false);setDialog('save-images');setBusy('download');setProgress('Preparando suas fotos...');
+ setLight(null);setPreparedImages([]);setPreparedSources(list.map(photo=>img(photo)));setSaveError('');setShareUnavailable(false);setDialog('save-images');setBusy('download');setProgress('Preparando suas fotos...');
  try{
   const files=await preparePhotoFiles(list,photo=>fetch(img(photo as Photo,true),{signal:controller.signal,cache:'no-store'}),(current,total)=>{if(saveVersion.current===version)setProgress('Preparando foto '+current+' de '+total)},controller.signal);
   if(saveVersion.current===version)setPreparedImages(files);
@@ -83,7 +83,7 @@ function downloadSingle(photo:Photo){
 async function savePreparedImages(){
  if(nativeSaving||!preparedImages.length)return;
  setNativeSaving(true);setSaveError('');
- try{await shareImages(preparedImages);closeSaveImages()}
+ try{await shareImages(preparedImages)}
  catch(error:any){if(error.name!=='AbortError'){setShareUnavailable(true);setSaveError('Use a imagem abaixo: toque e segure para ver a opção de salvar no seu aparelho.')}}
  finally{setNativeSaving(false)}
 }
@@ -151,13 +151,18 @@ return <div className={isAdmin?'app admin-app':'app'}>
  {busy==='download'?<div className="save-progress" role="status"><Loader2 className="spin" size={24}/><p>{progress}</p></div>:null}
  {saveError&&<p className="save-message" role="alert">{saveError}</p>}
  {!!preparedImages.length&&<>
-  {canShareImages(preparedImages)&&!shareUnavailable?<>
-   <p>Toque no botão abaixo. No menu do celular, escolha a opção de salvar {preparedImages.length===1?'a imagem':'as imagens'} na galeria.</p>
-   <button className="btn primary full" disabled={nativeSaving} onClick={savePreparedImages}><Download size={18}/>{preparedImages.length===1?'Salvar imagem':'Salvar imagens'}</button>
-  </>:<p>Toque e segure {preparedImages.length===1?'a imagem abaixo':'cada imagem abaixo'} e escolha a opção de salvar no seu aparelho. Se precisar, use “Abrir imagem”.</p>}
-  <div className={'save-previews '+(preparedImages.length===1?'single':'')}>
-   {preparedImages.map((file,index)=><figure key={index}>{preparedPreviews[index]&&<img src={preparedPreviews[index]} alt={'Foto '+String(index+1).padStart(2,'0')}/>}<figcaption><span>Foto {String(index+1).padStart(2,'0')}</span>{preparedPreviews[index]&&<a className="text-link" href={preparedPreviews[index]} target="_blank" rel="noopener">Abrir imagem <Expand size={14}/></a>}</figcaption></figure>)}
+  <div className="save-instructions">
+   <strong>No iPhone: toque e segure a foto</strong>
+   <p>Escolha “Salvar em Fotos”, “Adicionar a Fotos” ou “Salvar Imagem” no menu que aparecer. Repita em cada foto selecionada.</p>
+   <p>Se a opção não aparecer, toque em “Abrir imagem original” e mantenha o dedo sobre a imagem aberta. Se estiver no navegador do WhatsApp ou Instagram, abra este link no Safari.</p>
   </div>
+  <div className={'save-previews '+(preparedImages.length===1?'single':'')}>
+   {preparedImages.map((file,index)=><figure key={index}>{preparedSources[index]&&<img src={preparedSources[index]} alt={'Foto '+String(index+1).padStart(2,'0')} draggable={false}/>}<figcaption><span>Foto {String(index+1).padStart(2,'0')}</span>{preparedSources[index]&&<a className="text-link" href={preparedSources[index]} target="_blank" rel="noopener">Abrir imagem original <Expand size={14}/></a>}</figcaption></figure>)}
+  </div>
+  {canShareImages(preparedImages)&&!shareUnavailable&&<div className="save-share-option">
+   <p>Para enviar as fotos a outro aplicativo ou salvar em Arquivos:</p>
+   <button className="btn full" disabled={nativeSaving} onClick={savePreparedImages}><Send size={18}/>Compartilhar arquivos</button>
+  </div>}
  </>}
  {!busy&&!preparedImages.length&&<button className="btn full" onClick={closeSaveImages}>Voltar à galeria</button>}
 </Modal>}
