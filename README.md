@@ -34,3 +34,11 @@ Os segredos ADMIN_USERNAME e ADMIN_PASSWORD_HASH são configurados no ambiente d
 ## Verificação
 
 pnpm exec tsc --noEmit verifica os tipos. O build da Vercel precisa produzir .next/routes-manifest.json. Alterações na interface são publicadas na Vercel pelo GitHub; alterações na API do Worker precisam de uma publicação separada no Sites.
+
+## URLs de acesso
+
+- /cliente: galeria de demonstração do cliente, sem link para o painel do fotógrafo.
+- /cliente/<token>: álbum exclusivo do cliente. O painel copia links neste formato.
+- /fotografo: login e painel do fotógrafo.
+- /: redireciona para /cliente.
+- /g/<token>: permanece disponível para os links de álbuns compartilhados anteriormente.
