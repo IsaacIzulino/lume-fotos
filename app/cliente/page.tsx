@@ -1,2 +1,2 @@
-import { notFound } from 'next/navigation';
-export default function Page(){notFound()}
+import { redirect } from 'next/navigation';
+export default function Page(){redirect('/fotografo')}
