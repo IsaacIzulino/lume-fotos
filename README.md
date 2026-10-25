@@ -57,3 +57,13 @@ O teste de integração local simula o Supabase e verifica autenticação, isola
 ## Implantação original no Sites
 
 pnpm run build continua gerando o Worker Vinext/Cloudflare. O alias @lume-api seleciona lib/sites-api.ts nesse ambiente e lib/vercel-api.ts no Next.js. A variante Sites preserva o armazenamento D1/R2 e não compartilha dados nem sessões com o Supabase. Não use dados de produção no armazenamento de desenvolvimento.
+
+## Salvar fotos no celular
+
+A área do cliente identifica imagens por número, sem mostrar o nome original do arquivo. A marca e os detalhes decorativos usam SVG.
+
+Em telas de celular, Salvar fotos prepara imagens individuais e oferece uma segunda ação que abre o menu nativo do aparelho via Web Share API. O usuário escolhe a opção de salvar no aplicativo de fotos. Isso depende das opções oferecidas pelo navegador e pelo sistema; o site não grava automaticamente na galeria. A segunda ação preserva a ativação exigida pelo navegador após o download dos arquivos.
+
+Sem compartilhamento de arquivos disponível, a interface mostra as imagens para salvar pelo toque prolongado ou abrir individualmente. O lote móvel é limitado a 100 MB por vez. No computador, o download da seleção continua sendo ZIP de até 200 MB.
+
+Use pnpm run test:downloads para verificar preparação, tipos, cancelamento e chamada nativa com os arquivos já preparados.

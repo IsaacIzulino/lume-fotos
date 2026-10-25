@@ -15,7 +15,8 @@
     "build:vercel": "next build --webpack",
     "dev:vercel": "next dev --webpack",
     "start:vercel": "next start",
-    "test:supabase": "node --experimental-strip-types --test scripts/test-supabase-api.mjs"
+    "test:supabase": "node --experimental-strip-types --test scripts/test-supabase-api.mjs",
+    "test:downloads": "node --experimental-strip-types --test scripts/test-mobile-download.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
