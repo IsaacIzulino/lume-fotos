@@ -25,6 +25,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@lume-api": [
+        "./lib/vercel-api.ts"
       ]
     },
     "types": [

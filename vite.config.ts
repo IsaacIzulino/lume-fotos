@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
@@ -43,7 +44,7 @@ export default defineConfig(async ({ command }) => {
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
-  return {
+  return { resolve: { alias: { '@lume-api': fileURLToPath(new URL('./lib/sites-api.ts', import.meta.url)) } },
     server: {
       ...(managedLinux
         ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] }
