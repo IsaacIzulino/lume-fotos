@@ -1,44 +1,59 @@
 # Lume — Galerias de fotografia
 
-Galerias com painel do fotógrafo, login, upload de imagens, links públicos por álbum, seleção de favoritas e download em ZIP.
+Site para entrega de fotografias: painel do fotógrafo, álbuns por link, favoritas, envio de seleção e download dos originais em ZIP.
 
-## Publicar na Vercel
+## Vercel + Supabase
 
-O arquivo vercel.json seleciona Next.js, executa pnpm run build:vercel e usa a saída .next. A raiz do projeto deve ser a raiz deste repositório.
+A Vercel executa Next.js. A API em lib/supabase-api.ts usa diretamente o Supabase: banco PostgreSQL, bucket privado fotos e login próprio pela tabela usuarios. A implantação da Vercel não usa o serviço antigo de Cloudflare como proxy.
 
-A interface roda na Vercel. A API usa o serviço já publicado em https://lume-galeria-fotografica.hsc162349.chatgpt.site, que mantém o banco D1, as fotos R2 e as sessões. Esse serviço precisa continuar ativo. O painel aceita o mesmo usuário e senha; os segredos permanecem no serviço de origem.
+Configure na Vercel, para Production e Preview:
 
-LUME_API_ORIGIN é opcional, somente no servidor, para usar outro backend compatível. Não configure como origem a própria URL da Vercel, pois isso criaria um loop.
+| Variável | Tipo |
+| --- | --- |
+| NEXT_PUBLIC_SUPABASE_URL | Config: origem do projeto, sem /rest/v1/ |
+| NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY | Config: chave publicável |
+| SUPABASE_SECRET_KEY | Secret: chave administrativa, somente no servidor |
 
-As Vercel Functions têm limite de corpo de requisição de 4,5 MB. Por isso, nesta implantação o painel limita cada foto a 4 MB. No endereço original do Sites o limite continua em 25 MB. Para arquivos maiores na Vercel será necessário implementar upload direto ao armazenamento.
+A chave legada SUPABASE_SERVICE_ROLE_KEY também é aceita se SUPABASE_SECRET_KEY não existir. Nenhuma chave real ou senha deve ser incluída no repositório.
 
-Comandos:
+As tabelas fotografos, usuarios, albuns, fotos, selecoes e selecao_fotos devem estar criadas no projeto. Execute supabase/migrations/20261025_integracao.sql no SQL Editor para adicionar sessões, limite de tentativas e uploads pendentes. A migração é repetível e preserva os cadastros existentes. O bucket fotos deve existir; a migração o mantém privado e limita imagens a 25 MB.
+
+O cadastro usuarios armazena usuario em minúsculas e senha_hash bcrypt (pgcrypto, bf, custo 12). O login aceita variações de maiúsculas e minúsculas. O servidor verifica a senha por RPC e mantém somente o hash do token de sessão no banco, com validade de oito horas e cookie HttpOnly/SameSite=Strict. Contas inativas e sessões encerradas perdem o acesso.
+
+As credenciais administrativas do Supabase ficam no servidor. Todas as operações do painel verificam a sessão e a propriedade do álbum. Clientes acessam apenas álbuns publicados por código aleatório. A seleção é gravada em uma transação que verifica se todas as fotos pertencem ao álbum.
+
+## Upload e download
+
+1. O fotógrafo solicita uma autorização de upload para um caminho exclusivo.
+2. O navegador envia o arquivo diretamente ao Supabase Storage com uma URL assinada.
+3. O servidor confere tamanho e assinatura do arquivo antes de registrar a foto no álbum.
+4. As fotos privadas são liberadas por links assinados de 60 segundos, após validar o álbum e o visitante.
+
+O limite é 25 MB por foto. Os arquivos não passam pelo corpo de uma Vercel Function. Uploads interrompidos tentam cancelar o registro e remover o objeto pendente. Registros pendentes antigos podem ser revisados em lume_uploads; nunca exclua caminhos que estejam registrados em fotos. A seleção pode ser baixada em ZIP de até 200 MB por lote no navegador.
+
+Ao desativar um álbum, novas autorizações de acesso são bloqueadas. Uma URL já assinada pode funcionar até expirar, por no máximo 60 segundos.
+
+## URLs
+
+- /cliente: demonstração pública.
+- /cliente/<codigo>: álbum do cliente.
+- /fotografo: login e painel.
+- /: redireciona para /cliente.
+- /g/<codigo>: compatibilidade com links anteriores.
+- /api/health: confirma configuração e disponibilidade das tabelas auxiliares, sem expor credenciais.
+
+Álbuns e fotos anteriores no Cloudflare não são migrados automaticamente. A implantação antiga continua separada; uma migração de conteúdo deve preservar os códigos dos álbuns.
+
+## Desenvolvimento e testes
+
 - pnpm install
+- pnpm run dev:vercel
 - pnpm run build:vercel
 - pnpm run start:vercel
+- pnpm run test:supabase
 
-Para desenvolvimento da interface com o backend publicado: pnpm run dev:vercel.
+O teste de integração local simula o Supabase e verifica autenticação, isolamento entre fotógrafos, CSRF, uploads maiores que 4 MB, integridade dos arquivos, publicação e seleção. O build Next.js verifica os tipos e gera .next/routes-manifest.json.
 
-## Publicar no Sites / Cloudflare
+## Implantação original no Sites
 
-O build original permanece disponível em pnpm run build, com a integração Vite/Vinext e os bindings DB (D1) e BUCKET (R2) declarados em .openai/hosting.json.
-
-- pnpm run dev: prévia com Worker e armazenamento local.
-- pnpm run build: build do Worker para Sites.
-- pnpm run db:generate: gera novas migrações após alterações no schema.
-
-A API do Worker está em lib/sites-api.ts. A API da Vercel está em lib/vercel-api.ts. O alias @lume-api seleciona a implementação adequada: Next.js usa tsconfig.json; Vite usa vite.config.ts.
-
-Os segredos ADMIN_USERNAME e ADMIN_PASSWORD_HASH são configurados no ambiente do Worker. O hash usa salt hexadecimal + ":" + PBKDF2-SHA256 de 100.000 iterações e 32 bytes, em hexadecimal. Credenciais e arquivos .dev.vars/.env não devem ser enviados ao Git.
-
-## Verificação
-
-pnpm exec tsc --noEmit verifica os tipos. O build da Vercel precisa produzir .next/routes-manifest.json. Alterações na interface são publicadas na Vercel pelo GitHub; alterações na API do Worker precisam de uma publicação separada no Sites.
-
-## URLs de acesso
-
-- /cliente: galeria de demonstração do cliente, sem link para o painel do fotógrafo.
-- /cliente/<token>: álbum exclusivo do cliente. O painel copia links neste formato.
-- /fotografo: login e painel do fotógrafo.
-- /: redireciona para /cliente.
-- /g/<token>: permanece disponível para os links de álbuns compartilhados anteriormente.
+pnpm run build continua gerando o Worker Vinext/Cloudflare. O alias @lume-api seleciona lib/sites-api.ts nesse ambiente e lib/vercel-api.ts no Next.js. A variante Sites preserva o armazenamento D1/R2 e não compartilha dados nem sessões com o Supabase. Não use dados de produção no armazenamento de desenvolvimento.
