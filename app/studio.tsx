@@ -15,7 +15,8 @@ const [user,setUser]=useState<boolean|null>(null),[albums,setAlbums]=useState<Al
 const [error,setError]=useState(''),[toast,setToast]=useState(''),[busy,setBusy]=useState(''),[query,setQuery]=useState(''),[filter,setFilter]=useState('all'),[selected,setSelected]=useState<Set<string>>(new Set()),[light,setLight]=useState<number|null>(null),[dialog,setDialog]=useState(''),[progress,setProgress]=useState(''),[loaded,setLoaded]=useState(false);
 const [preparedImages,setPreparedImages]=useState<File[]>([]),[preparedSources,setPreparedSources]=useState<string[]>([]),[saveError,setSaveError]=useState(''),[nativeSaving,setNativeSaving]=useState(false),[shareUnavailable,setShareUnavailable]=useState(false);
 const [barHidden,setBarHidden]=useState(false);
-const [zipFile,setZipFile]=useState<{url:string;name:string}|null>(null);
+const [preparedPhotos,setPreparedPhotos]=useState<Photo[]>([]);
+const [zipFile,setZipFile]=useState<{url:string;name:string;scope:'all'|'selected'}|null>(null);
 useEffect(()=>()=>{if(zipFile)URL.revokeObjectURL(zipFile.url)},[zipFile]);
 const saveAbort=useRef<AbortController|null>(null),saveVersion=useRef(0);
 
@@ -60,13 +61,13 @@ function img(p:Photo,download=false){return p.url&&!download?p.url:'/api/image/'
 function photoLabel(photo:Photo){return 'Foto '+String(photos.findIndex(item=>item.id===photo.id)+1).padStart(2,'0')}
 function closeSaveImages(){
  saveVersion.current++;saveAbort.current?.abort();saveAbort.current=null;
- setDialog('');setPreparedImages([]);setPreparedSources([]);setSaveError('');setBusy('');setNativeSaving(false);
+ setDialog('');setPreparedPhotos([]);setPreparedImages([]);setPreparedSources([]);setSaveError('');setBusy('');setNativeSaving(false);
 }
 async function prepareForGallery(list:Photo[]){
  if(!list.length||busy)return;
  const version=++saveVersion.current,controller=new AbortController();
  saveAbort.current?.abort();saveAbort.current=controller;
- setLight(null);setPreparedImages([]);setPreparedSources(list.map(photo=>img(photo)));setSaveError('');setShareUnavailable(false);setDialog('save-images');setBusy('download');setProgress('Preparando suas fotos...');
+ setLight(null);setPreparedPhotos(list);setPreparedImages([]);setPreparedSources(list.map(photo=>img(photo)));setSaveError('');setShareUnavailable(false);setDialog('save-images');setBusy('download');setProgress('Preparando suas fotos...');
  try{
   const files=await preparePhotoFiles(list,photo=>fetch(img(photo as Photo,true),{signal:controller.signal,cache:'no-store'}),(current,total)=>{if(saveVersion.current===version)setProgress('Preparando foto '+current+' de '+total)},controller.signal);
   if(saveVersion.current===version)setPreparedImages(files);
@@ -122,11 +123,12 @@ async function upload(files:FileList|File[]){
 }
 async function publish(){if(!album)return;setBusy('publish');try{await api('albums/'+album.id,'PATCH',{published:!album.published});await openAlbum(album.id);await loadAlbums();setToast(album.published?'Galeria desativada.':'Galeria disponível para o cliente.')}catch(e:any){setError(e.message)}finally{setBusy('')}}
 async function copyLink(){if(!album?.published){setToast('Ative a galeria antes de compartilhar.');return}const url=location.origin+'/cliente/'+album.token;if(navigator.share&&window.matchMedia('(max-width: 760px)').matches){try{await navigator.share({title:album.title,url});return}catch(error){if(error instanceof Error&&error.name==='AbortError')return}}try{await navigator.clipboard.writeText(url);setToast('Link do cliente copiado!')}catch{setDialog('link')}}
-async function downloadZip(scope:'all'|'selected'='selected'){
- const list=scope==='all'?photos:photos.filter(p=>selected.has(p.id));
+async function downloadZip(scope:'all'|'selected'='selected',chosenPhotos?:Photo[]){
+ const list=chosenPhotos??(scope==='all'?photos:photos.filter(p=>selected.has(p.id)));
+ const showError=(message:string)=>dialog==='save-images'?setSaveError(message):setError(message);
  if(!list.length||busy)return;
- if(list.reduce((n,p)=>n+p.size,0)>200*1024*1024){setError('O limite por ZIP é de 200 MB. Baixe as fotos individualmente ou selecione menos fotos para baixar no computador.');return}
- setBusy('zip');setError('');setZipFile(null);
+ if(list.reduce((n,p)=>n+p.size,0)>200*1024*1024){showError('O limite por ZIP é de 200 MB. Selecione menos fotos ou baixe as imagens individualmente.');return}
+ setBusy('zip');setError('');setSaveError('');setZipFile(null);
  try{
   const files=[];let total=0;
   for(let i=0;i<list.length;i++){
@@ -134,14 +136,13 @@ async function downloadZip(scope:'all'|'selected'='selected'){
    const response=await fetch(img(list[i],true));
    if(!response.ok)throw new Error('Não foi possível baixar a foto '+(i+1)+'. Tente novamente.');
    const data=new Uint8Array(await response.arrayBuffer());total+=data.length;
-   if(total>200*1024*1024)throw new Error('O limite por ZIP é de 200 MB. Selecione menos fotos no computador ou baixe as imagens individualmente.');
+   if(total>200*1024*1024)throw new Error('O limite por ZIP é de 200 MB. Selecione menos fotos ou baixe as imagens individualmente.');
    files.push({name:String(i+1).padStart(3,'0')+'_'+list[i].name,data});
   }
   const {zip}=await import('./zip');
-  const file={url:URL.createObjectURL(zip(files)),name:(album?.title||'minhas-fotos').replace(/[^a-zA-Z0-9À-ÿ -]/g,'')+'.zip'};
-  if(scope==='all'){setZipFile(file);setDialog('zip-ready')}
-  else{const a=document.createElement('a');a.href=file.url;a.download=file.name;a.click();setTimeout(()=>URL.revokeObjectURL(file.url),60000);setToast('Seu download está pronto.')}
- }catch(e:any){setError(e.message)}finally{setBusy('');setProgress('')}
+  const file={scope,url:URL.createObjectURL(zip(files)),name:(album?.title||'minhas-fotos').replace(/[^a-zA-Z0-9À-ÿ -]/g,'')+'.zip'};
+  setZipFile(file);setDialog('zip-ready');
+ }catch(e:any){showError(e.message)}finally{setBusy('');setProgress('')}
 }
 useEffect(()=>{if(light===null)return;const key=(e:KeyboardEvent)=>{if(e.key==='ArrowRight')setLight(x=>x===null?null:(x+1)%photos.length);if(e.key==='ArrowLeft')setLight(x=>x===null?null:(x-1+photos.length)%photos.length)};document.addEventListener('keydown',key);return()=>document.removeEventListener('keydown',key)},[light,photos.length]);
 const date=album?.date?new Date(album.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'}):'';
@@ -171,22 +172,24 @@ return <div className={isAdmin?'app admin-app':'app'}>
 <footer className="page-footer"><span>LUME © 2026</span><span>FOTOGRAFIAS QUE CONTAM A SUA HISTÓRIA.</span><span>Feito com cuidado <span className="terracotta"><BrandSparkle/></span></span></footer>
 </main>
 {!isAdmin&&album&&<div className={'download-bar'+(barHidden?' is-hidden':'')} ref={downloadBar} inert={barHidden} aria-hidden={barHidden}><div className="selection-icon"><Heart size={20}/></div><div role="status" aria-live="polite" aria-atomic="true"><strong>{selected.size?selected.size+' '+(selected.size===1?'foto selecionada':'fotos selecionadas'):'Qual momento é o seu favorito?'}</strong><small>{busy==='download'||busy==='zip'?progress:'Selecione, guarde e reviva.'}</small></div><div className="download-actions"><button className="btn send" disabled={!selected.size||!!busy} onClick={()=>setDialog('send')}><Send size={16}/> Enviar seleção</button><button className="btn primary" disabled={!selected.size||!!busy} onClick={downloadSelected}>{busy==='download'?<Loader2 className="spin" size={17}/>:<Download size={17}/>}<span className="desktop-label">Baixar selecionadas</span><span className="mobile-label">Salvar fotos</span><span className="button-count">{selected.size}</span></button></div></div>}
-{dialog==='zip-ready'&&zipFile&&<Modal label="Baixar álbum em ZIP" close={()=>{setDialog('');setZipFile(null)}}>
- <span className="eyebrow">ÁLBUM COMPLETO</span><h2>Seu ZIP está pronto</h2>
- <p>Toque abaixo para baixar todas as fotos originais.</p>
+{dialog==='zip-ready'&&zipFile&&<Modal label="Baixar fotos em ZIP" close={()=>{setDialog('');setZipFile(null)}}>
+ <span className="eyebrow">{zipFile.scope==='all'?'ÁLBUM COMPLETO':'FOTOS SELECIONADAS'}</span><h2>Seu ZIP está pronto</h2>
+ <p>{zipFile.scope==='all'?'Toque abaixo para baixar todas as fotos originais.':'Toque abaixo para baixar somente as fotos escolhidas.'}</p>
  <a className="btn primary full" href={zipFile.url} download={zipFile.name}><Download size={18}/>Baixar arquivo ZIP</a>
- <div className="save-instructions"><strong>No iPhone</strong><p>Abra Arquivos → Downloads e toque no ZIP para extrair. Depois, abra a pasta, selecione as fotos e use Compartilhar → Salvar imagens, se essa opção aparecer.</p></div>
+ <div className="save-instructions"><strong>No Android</strong><p>Abra Downloads no app Arquivos ou Files e use Extrair. Para ver as imagens na galeria, confira a pasta Downloads no seu app de fotos.</p><strong>No iPhone</strong><p>Abra Arquivos → Downloads e toque no ZIP para extrair. Depois, abra a pasta, selecione as fotos e use Compartilhar → Salvar imagens, se essa opção aparecer.</p></div>
 </Modal>}
 {dialog==='save-images'&&<Modal label="Salvar fotos" close={closeSaveImages}>
  <span className="eyebrow">SUAS FOTOS NO CELULAR</span>
  <h2>Salvar fotos</h2>
- {busy==='download'?<div className="save-progress" role="status"><Loader2 className="spin" size={24}/><p>{progress}</p></div>:null}
+ <button className="btn primary full selected-zip" disabled={!!busy||!preparedPhotos.length} onClick={()=>void downloadZip('selected',preparedPhotos)}><Download size={18}/>Baixar selecionadas em ZIP <span className="button-count">{preparedPhotos.length}</span></button>
+ {busy==='download'||busy==='zip'?<div className="save-progress" role="status"><Loader2 className="spin" size={24}/><p>{progress}</p></div>:null}
  {saveError&&<p className="save-message" role="alert">{saveError}</p>}
  {!!preparedImages.length&&<>
   <div className="save-instructions">
-   <strong>No iPhone: toque e segure a foto</strong>
-   <p>Escolha “Salvar em Fotos”, “Adicionar a Fotos” ou “Salvar Imagem” no menu que aparecer. Repita em cada foto selecionada.</p>
-   <p>Se a opção não aparecer, toque em “Abrir imagem original” e mantenha o dedo sobre a imagem aberta. Se estiver no navegador do WhatsApp ou Instagram, abra este link no Safari.</p>
+   <strong>Para salvar uma foto no celular</strong>
+   <p>No Android: toque e segure a imagem e escolha “Fazer download da imagem” ou “Baixar imagem”. Confira a pasta Downloads no app de fotos ou em Arquivos.</p>
+   <details><summary>Como salvar no iPhone</summary><p>Toque e segure a imagem e escolha “Salvar em Fotos”, “Adicionar a Fotos” ou “Salvar Imagem”. Se precisar, use “Abrir imagem original”.</p></details>
+   <p>Se estiver no navegador do WhatsApp ou Instagram, abra o link no Chrome (Android) ou Safari (iPhone).</p>
   </div>
   <div className={'save-previews '+(preparedImages.length===1?'single':'')}>
    {preparedImages.map((file,index)=><figure key={index}>{preparedSources[index]&&<img src={preparedSources[index]} alt={'Foto '+String(index+1).padStart(2,'0')} draggable={false}/>}<figcaption><span>Foto {String(index+1).padStart(2,'0')}</span>{preparedSources[index]&&<a className="text-link" href={preparedSources[index]} target="_blank" rel="noopener">Abrir imagem original <Expand size={14}/></a>}</figcaption></figure>)}
